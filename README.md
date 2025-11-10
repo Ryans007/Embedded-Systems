@@ -4,12 +4,22 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 
 ## Estrutura do Repositório
 
-- Atividade-01/  
-- Atividade-02/  
-- Atividade-03/  
-  - `contador_binario.c`  
-- Atividade-04/  
-  - `pwm.c`  
+- Atividade-01/
+- Atividade-02/
+- Atividade-03/
+  - `contador_binario.c`
+- Atividade-04/
+  - `pwm.c`
+- Atividade-05/
+  - `main.c`
+- Atividade-06/
+  - `main.c`
+- Atividade-07/
+  - `main.c`
+- Atividade-08/
+  - `main.c`
+- Atividade-09/
+  - `main.c`
 
 ## Atividades e Simulações Wokwi
 
@@ -24,4 +34,6 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
   https://wokwi.com/projects/443611404865354753
 
 ---
-*Desenvolvido para a disciplina de Sistemas Embarcados*  
+*Desenvolvido para a disciplina de Sistemas Embarcados*
+
+
