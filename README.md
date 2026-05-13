@@ -31,7 +31,7 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 ### Atividade 04 – PWM e Buzzer
 - Descrição: Controle de brilho de LEDs via PWM e geração de tonalidades no buzzer (500 Hz → 2000 Hz → 500 Hz).
 - Simulação no Wokwi:  
-  https://wokwi.com/projects/443611404865354753
+  https://wokwi.com/projects/447713609241958401
 
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
