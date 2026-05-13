@@ -33,6 +33,11 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Simulação no Wokwi:  
   https://wokwi.com/projects/447713609241958401
 
+### Atividade 05 – Contador Binário com Botões
+- Descrição: Contador binário de 0 a 15 com 4 LEDs e 2 botões: Botão A incrementa o contador (+1 ou +2) e Botão B alterna a unidade de incremento entre +1 e +2.
+- Simulação no Wokwi:  
+  https://wokwi.com/projects/447725339539824641
+
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
 
