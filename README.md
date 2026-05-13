@@ -53,6 +53,11 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Simulação no Wokwi:  
   https://wokwi.com/projects/447816426252018689
 
+### Atividade 09 – Termômetro com Máquina de Estados e SD Card
+- Descrição: Evolução da Atividade 08 com arquitetura baseada em máquina de estados (inicializar → ler sensor → atualizar display → atualizar LEDs → verificar alarme → salvar SD Card). Registra leituras de temperatura a cada 500 ms em cartão SD via SPI, mantendo o LCD I2C, buzzer, 4 LEDs indicadores e controle de limiar por interrupção.
+- Simulação no Wokwi:  
+  https://wokwi.com/projects/447863454176456705
+
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
 
