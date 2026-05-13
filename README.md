@@ -38,6 +38,11 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Simulação no Wokwi:  
   https://wokwi.com/projects/447725339539824641
 
+### Atividade 06 – Interrupções, Timer e UART
+- Descrição: Uso de interrupções GPIO, timer por hardware e UART. Botão A alterna LED1 via interrupção, Botão B liga o buzzer por 1500 ms via PWM, timer dispara a cada 2 s alternando LED2, e comandos UART ('a'/'b') ativam ou desativam a função do Botão B.
+- Simulação no Wokwi:  
+  https://wokwi.com/projects/447732757246547969
+
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
 
