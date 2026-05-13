@@ -20,6 +20,8 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
   - `main.c`
 - Atividade-09/
   - `main.c`
+- Atividade-10/
+  - `main.c`
 
 ## Atividades e Simulações Wokwi
 
@@ -57,6 +59,11 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Descrição: Evolução da Atividade 08 com arquitetura baseada em máquina de estados (inicializar → ler sensor → atualizar display → atualizar LEDs → verificar alarme → salvar SD Card). Registra leituras de temperatura a cada 500 ms em cartão SD via SPI, mantendo o LCD I2C, buzzer, 4 LEDs indicadores e controle de limiar por interrupção.
 - Simulação no Wokwi:  
   https://wokwi.com/projects/447863454176456705
+
+### Atividade 10 – FreeRTOS com Display de 7 Segmentos
+- Descrição: Evolução da Atividade 09 com adição de display de 7 segmentos (7 GPIOs dedicados) e uso de FreeRTOS para gerenciamento de tarefas. Mantém a mesma arquitetura de máquina de estados, LCD I2C, NTC, buzzer, 4 LEDs indicadores, SD Card via SPI e controle de limiar por interrupção.
+- Simulação no Wokwi:  
+  https://wokwi.com/projects/447870876107862017
 
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
