@@ -43,6 +43,11 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Simulação no Wokwi:  
   https://wokwi.com/projects/447732757246547969
 
+### Atividade 07 – Acelerômetro I2C com Display OLED
+- Descrição: Leitura do acelerômetro MPU6050 via I2C com média móvel de 10 amostras. Os valores de aceleração (X, Y, Z) em m/s² são exibidos no display OLED SSD1306, e um LED pisca ao detectar variação brusca (≥ 0,5 m/s²) em qualquer eixo.
+- Simulação no Wokwi:  
+  https://wokwi.com/projects/447784831288053761
+
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
 

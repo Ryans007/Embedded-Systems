@@ -6,29 +6,8 @@
 #include "driver/i2c.h"
 #include "driver/gpio.h"
 
-// Pinos e configurações I2C
-#define LED 38
-#define I2C_SCL 15
-#define I2C_SDA 16
-#define I2C_PORT I2C_NUM_0  
-#define I2C_FREQ 100000
 
-// Endereços I2C dos dispositivos
-#define MPU6050_ADDR 0x68
-#define SSD1306_ADDR 0x3C
-
-// Registradores do MPU6050
-#define MPU6050_PWR_MGMT_1 0x6B      // Controle de energia
-#define MPU6050_ACCEL_XOUT_H 0x3B    // Início dos dados de aceleração
-
-// Display OLED
-#define SSD1306_WIDTH 128
-#define SSD1306_HEIGHT 64
-
-// Parâmetros do sistema
-#define BUFFER_SIZE 10           // Tamanho do buffer para média móvel
-#define ACCEL_THRESHOLD 0.5      // Limite para piscar LED (m/s²)
-#define SAMPLE_PERIOD_MS 200     // Período de amostragem
+// ================================ Typedefs ======================================
 
 // Estrutura para armazenar dados de aceleração
 typedef struct {
@@ -37,16 +16,57 @@ typedef struct {
     float z;
 } accel_data_t;
 
-// Buffer circular para cálculo da média
-static accel_data_t accel_buffer[BUFFER_SIZE];
-static int buffer_index = 0;
-static int buffer_count = 0;
+// ================================ Definição das Variaveis ===============================
+#define LED 15
+#define I2C_SDA 12
+#define I2C_SCL 13
+#define I2C_PORT I2C_NUM_0  
+#define I2C_FREQ 100000
+
+// Endereços I2C
+#define MPU6050_ADDR 0x68
+#define SSD1306_ADDR 0x3C
+
+// Registradores do MPU6050
+#define MPU6050_PWR_MGMT_1 0x6B
+#define MPU6050_ACCEL_XOUT_H 0x3B
+
+// Configurações do SSD1306
+#define SSD1306_WIDTH 128
+#define SSD1306_HEIGHT 64
+
+// Buffer para média móvel
+#define BUFFER_SIZE 10
+#define ACCEL_THRESHOLD 0.5
+#define SAMPLE_PERIOD_MS 200
+
+// Variaveis para buffer
+static accel_data_t accel_buffer[10];  // Buffer circular
+static int buffer_index = 0;           // Índice atual
+static int buffer_count = 0;           // Quantos dados temos
+
+// Guardar valores anteriores
 static accel_data_t last_accel = {0, 0, 0};
 
-// Buffer do display
+// Buffer de display do SSD1306
 static uint8_t ssd1306_buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 
-// Font 8x8 para display
+// ================================ Definição dos Prototipos ===========================
+
+// Protótipos de funções
+static esp_err_t i2c_initial_config();
+static void initial_config_led();
+static esp_err_t mpu6050_init();
+static esp_err_t mpu6050_read_accel(int16_t *ax, int16_t *ay, int16_t *az);
+static esp_err_t ssd1306_init();
+static void ssd1306_clear();
+static void ssd1306_display();
+static void ssd1306_draw_text(uint8_t x, uint8_t y, const char *text, uint8_t size);
+static void calculate_average(accel_data_t *avg);
+static bool check_acceleration_change(accel_data_t current);
+void add_to_buffer(accel_data_t data);
+
+// Font 8x8 - mais legível
 static const uint8_t font8x8[][8] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // ' '
     {0x00, 0x00, 0x5F, 0x00, 0x00, 0x00, 0x00, 0x00}, // '!'
@@ -109,231 +129,200 @@ static const uint8_t font8x8[][8] = {
     {0x61, 0x51, 0x49, 0x45, 0x43, 0x00, 0x00, 0x00}, // 'Z'
 };
 
-// Protótipos
-static esp_err_t i2c_initial_config();
-static void led_initial_config();
-static esp_err_t mpu6050_init();
-static esp_err_t mpu6050_read_accel(int16_t *ax, int16_t *ay, int16_t *az);
-static esp_err_t ssd1306_init();
-static void ssd1306_clear();
-static void ssd1306_display();
-static void ssd1306_draw_text(uint8_t x, uint8_t y, const char *text, uint8_t size);
-static void calculate_average(accel_data_t *avg);
-static bool check_acceleration_change(accel_data_t current);
-
 void app_main() {
-    printf("Iniciando sistema...\n");
-    
-    // Inicializar periféricos
-    led_initial_config();
-    
-    if (i2c_initial_config() != ESP_OK) {
-        printf("Erro ao configurar I2C\n");
-        return;
-    }
-    
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    if (mpu6050_init() != ESP_OK) {
-        printf("Erro ao inicializar MPU6050\n");
-        return;
-    }
-    
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    if (ssd1306_init() != ESP_OK) {
-        printf("Erro ao inicializar SSD1306\n");
-        return;
-    }
-    
-    printf("Sistema pronto!\n\n");
-    
-    int16_t ax_raw, ay_raw, az_raw;
-    char buffer[32];
-    
-    // Loop principal
-    while (1) {
-        if (mpu6050_read_accel(&ax_raw, &ay_raw, &az_raw) == ESP_OK) {
-            // Converter valores raw para m/s²
-            // MPU6050 escala padrão: ±2g = 16384 LSB/g
-            accel_data_t current;
-            current.x = (ax_raw / 16384.0) * 9.81;
-            current.y = (ay_raw / 16384.0) * 9.81;
-            current.z = (az_raw / 16384.0) * 9.81;
+  printf("Iniciando sistema...\n");
+  
+  initial_config_led();
+  
+  if (i2c_initial_config() != ESP_OK) {
+      printf("Erro ao configurar I2C\n");
+      return;
+  }
+  
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+  if (mpu6050_init() != ESP_OK) {
+      printf("Erro ao inicializar MPU6050\n");
+      return;
+  }
+  
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+  if (ssd1306_init() != ESP_OK) {
+      printf("Erro ao inicializar SSD1306\n");
+      return;
+  }
+  
+  printf("Sistema pronto!\n\n");
+  
+  int16_t ax_raw, ay_raw, az_raw;
+  char buffer[32];
+  while (true) {
+    if(mpu6050_read_accel(&ax_raw, &ay_raw, &az_raw) == ESP_OK) {
+        // Formula de Conversão
+        accel_data_t current;
+        current.x = (ax_raw / 16384.0) * 9.81;
+        current.y = (ay_raw / 16384.0) * 9.81;
+        current.z = (az_raw / 16384.0) * 9.81;
+
+        printf("X: %.2f m/s² Y: %.2f m/s² Z: %.2f m/s²\n", current.x, current.y, current.z);
+
+        // Adicionar ao buffer
+        add_to_buffer(current);
+
+        // Calcular média
+        accel_data_t avg;
+        calculate_average(&avg);
+
+        if (check_acceleration_change(avg)) {
+            // LED pisca
+            gpio_set_level(LED, 1);
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+            gpio_set_level(LED, 0);
+         }
+        last_accel = avg;  // Atualiza para próxima iteração
             
-            // Adicionar ao buffer circular
-            accel_buffer[buffer_index] = current;
-            buffer_index = (buffer_index + 1) % BUFFER_SIZE;
-            if (buffer_count < BUFFER_SIZE) {
-                buffer_count++;
-            }
-            
-            // Calcular média das últimas 10 leituras
-            accel_data_t avg;
-            calculate_average(&avg);
-            
-            // LED pisca quando detecta mudança significativa
-            if (check_acceleration_change(avg)) {
-                gpio_set_level(LED, 1);
-                vTaskDelay(50 / portTICK_PERIOD_MS);
-                gpio_set_level(LED, 0);
-            }
-            
-            last_accel = avg;
-            
-            // Enviar para serial
-            printf("X: %.2f m/s²  Y: %.2f m/s²  Z: %.2f m/s²\n", avg.x, avg.y, avg.z);
-            
-            // Atualizar display
-            ssd1306_clear();
-            ssd1306_draw_text(0, 0, "Aceleracao", 1);
-            
-            sprintf(buffer, "X: %.2f", avg.x);
-            ssd1306_draw_text(0, 18, buffer, 2);
-            
-            sprintf(buffer, "Y: %.2f", avg.y);
-            ssd1306_draw_text(0, 34, buffer, 2);
-            
-            sprintf(buffer, "Z: %.2f", avg.z);
-            ssd1306_draw_text(0, 50, buffer, 2);
-            
-            ssd1306_display();
-        }
+        printf("X: %.2f m/s²  Y: %.2f m/s²  Z: %.2f m/s²\n", avg.x, avg.y, avg.z);
         
+        ssd1306_clear();
+        
+        ssd1306_draw_text(0, 0, "Aceleracao", 1);
+        
+        sprintf(buffer, "X: %.2f", avg.x);
+        ssd1306_draw_text(0, 18, buffer, 2);
+        
+        sprintf(buffer, "Y: %.2f", avg.y);
+        ssd1306_draw_text(0, 34, buffer, 2);
+        
+        sprintf(buffer, "Z: %.2f", avg.z);
+        ssd1306_draw_text(0, 50, buffer, 2);
+        
+        ssd1306_display();
+        }
         vTaskDelay(SAMPLE_PERIOD_MS / portTICK_PERIOD_MS);
     }
-}
+  }
 
-static esp_err_t i2c_initial_config() {
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_SDA,
-        .scl_io_num = I2C_SCL,
-        .sda_pullup_en = GPIO_PULLUP_DISABLE,  // Pull-ups externos na montagem
-        .scl_pullup_en = GPIO_PULLUP_DISABLE,  // Pull-ups externos na montagem
-        .master.clk_speed = I2C_FREQ,
-    };
+// ================================ Funções Auxiliares MPU6050 ==================================
 
-    esp_err_t err = i2c_param_config(I2C_PORT, &conf);
-    if (err != ESP_OK) {
-        return err;
-    }
-    
-    return i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0);
-}
-
-static void led_initial_config() {
-    gpio_reset_pin(LED);
-    gpio_set_direction(LED, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED, 0);
-}
-
+// Função para inicializar o I2C
 static esp_err_t mpu6050_init() {
-    // Escrever 0 no registrador de power management para acordar o sensor
-    uint8_t data = 0x00;
+    // Dados para enviar
+    uint8_t data = 0x00;  // Coloca MPU6050 em modo normal
+    
+    // Criação de  comando I2C
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
+    
+    // Construção de sequência I2C
+    i2c_master_start(cmd);                    // Inicia comunicação
+    
+    // Escrevendo endereço + comando de WRITE
     i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, MPU6050_PWR_MGMT_1, true);
-    i2c_master_write_byte(cmd, data, true);
+    
+    // Escrevendo o registro que queremos modificar
+    i2c_master_write_byte(cmd, 0x6B, true);  // PWR_MGMT_1 register
+    
+    // Escrevendo o valor
+    i2c_master_write_byte(cmd, data, true);  // Valor: 0x00 (normal)
+    
+    // Parando comunicação
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, 1000 / portTICK_PERIOD_MS);
+    
+    // Executando comando (timeout 1000ms)
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_PERIOD_MS);
+    
+    // Liberando memória
     i2c_cmd_link_delete(cmd);
     
     if (ret == ESP_OK) {
-        printf("MPU6050 inicializado\n");
+        printf("MPU6050 inicializado com sucesso!\n");
     }
     return ret;
 }
 
+// Função para ler dados do mpu6050
 static esp_err_t mpu6050_read_accel(int16_t *ax, int16_t *ay, int16_t *az) {
-    uint8_t data[6];
+    uint8_t data[6];  // Vamos ler 6 bytes (2 para cada eixo)
     
-    // Ler 6 bytes começando do registrador ACCEL_XOUT_H
+    // Criando comando para ESCREVER o registro que queremos ler
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, MPU6050_ACCEL_XOUT_H, true);
-    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, 0x3B, true);  // ACCEL_XOUT_H register (primeiro byte)
+    
+    // Agora RECOMEÇAR e LER (repeated start)
+    i2c_master_start(cmd);  // ← Repeated START (não solta o barramento)
     i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_READ, true);
+    
+    // Ler os 6 bytes
     i2c_master_read(cmd, data, 6, I2C_MASTER_LAST_NACK);
+    //                                 ↑
+    //                    Último byte: sem ACK
+    
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, 1000 / portTICK_PERIOD_MS);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_PERIOD_MS);
     i2c_cmd_link_delete(cmd);
     
+    // Combinando  os bytes em int16_t
     if (ret == ESP_OK) {
-        // Combinar bytes high e low de cada eixo
-        *ax = (int16_t)((data[0] << 8) | data[1]);
+        *ax = (int16_t)((data[0] << 8) | data[1]);        
         *ay = (int16_t)((data[2] << 8) | data[3]);
         *az = (int16_t)((data[4] << 8) | data[5]);
     }
-    
     return ret;
 }
 
+// ==================================== Funções para o SSD1306 ===================================
+
 static esp_err_t ssd1306_init() {
-    // Sequência de comandos de inicialização do SSD1306
     uint8_t init_cmds[] = {
-        0xAE,       // Display OFF
-        0xD5, 0x80, // Set clock divide ratio
-        0xA8, 0x3F, // Set multiplex ratio
-        0xD3, 0x00, // Set display offset
-        0x40,       // Set start line
-        0x8D, 0x14, // Enable charge pump
-        0x20, 0x00, // Memory addressing mode
-        0xA1,       // Set segment remap
-        0xC8,       // Set COM output scan direction
-        0xDA, 0x12, // Set COM pins hardware configuration
-        0x81, 0xCF, // Set contrast control
-        0xD9, 0xF1, // Set pre-charge period
-        0xDB, 0x40, // Set VCOMH deselect level
-        0xA4,       // Display follows RAM content
-        0xA6,       // Normal display (not inverted)
-        0xAF        // Display ON
+        0xAE, 0xD5, 0x80, 0xA8, 0x3F, 0xD3, 0x00, 0x40,
+        0x8D, 0x14, 0x20, 0x00, 0xA1, 0xC8, 0xDA, 0x12,
+        0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6, 0xAF
     };
     
+    // Envia comandos de inicialização
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (SSD1306_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, 0x00, true); // Co = 0, D/C = 0 (command mode)
+    i2c_master_write_byte(cmd, 0x00, true);  // Control byte
+    
     for (int i = 0; i < sizeof(init_cmds); i++) {
         i2c_master_write_byte(cmd, init_cmds[i], true);
     }
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
     
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+
     if (ret == ESP_OK) {
-        printf("SSD1306 inicializado\n");
-        ssd1306_clear();
-        ssd1306_display();
+        printf("SSD1306 inicializado com sucesso!\n");
     }
     
     return ret;
 }
 
+// PASSO 9B: Limpar buffer do display
 static void ssd1306_clear() {
     memset(ssd1306_buffer, 0, sizeof(ssd1306_buffer));
 }
 
+// PASSO 9C: Enviar buffer para display
 static void ssd1306_display() {
-    // Display dividido em 8 páginas de 8 pixels de altura
     for (uint8_t page = 0; page < 8; page++) {
-        // Configurar posição
         i2c_cmd_handle_t cmd = i2c_cmd_link_create();
         i2c_master_start(cmd);
         i2c_master_write_byte(cmd, (SSD1306_ADDR << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, 0x00, true); // Command mode
-        i2c_master_write_byte(cmd, 0xB0 + page, true); // Set page
-        i2c_master_write_byte(cmd, 0x00, true); // Set lower column
-        i2c_master_write_byte(cmd, 0x10, true); // Set higher column
+        i2c_master_write_byte(cmd, 0x00, true);
+        i2c_master_write_byte(cmd, 0xB0 + page, true);
+        i2c_master_write_byte(cmd, 0x00, true);
+        i2c_master_write_byte(cmd, 0x10, true);
         i2c_master_stop(cmd);
         i2c_master_cmd_begin(I2C_PORT, cmd, 1000 / portTICK_PERIOD_MS);
         i2c_cmd_link_delete(cmd);
         
-        // Enviar dados da página
         cmd = i2c_cmd_link_create();
         i2c_master_start(cmd);
         i2c_master_write_byte(cmd, (SSD1306_ADDR << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, 0x40, true); // Data mode
+        i2c_master_write_byte(cmd, 0x40, true);
         i2c_master_write(cmd, &ssd1306_buffer[SSD1306_WIDTH * page], SSD1306_WIDTH, true);
         i2c_master_stop(cmd);
         i2c_master_cmd_begin(I2C_PORT, cmd, 1000 / portTICK_PERIOD_MS);
@@ -341,10 +330,10 @@ static void ssd1306_display() {
     }
 }
 
+
 static void ssd1306_draw_char(uint8_t x, uint8_t y, char c, uint8_t size) {
     int index = -1;
     
-    // Mapear caractere para índice na tabela de font
     if (c >= '0' && c <= '9') {
         index = (c - '0') + 16;
     } else if (c >= 'A' && c <= 'Z') {
@@ -362,11 +351,9 @@ static void ssd1306_draw_char(uint8_t x, uint8_t y, char c, uint8_t size) {
     }
     
     if (index >= 0 && index < sizeof(font8x8) / sizeof(font8x8[0])) {
-        // Desenhar cada pixel do caractere com escala
         for (int i = 0; i < 8; i++) {
             for (int j = 0; j < 8; j++) {
                 if (font8x8[index][i] & (1 << j)) {
-                    // Aplicar escala (size x size pixels)
                     for (int sy = 0; sy < size; sy++) {
                         for (int sx = 0; sx < size; sx++) {
                             int px = x + i * size + sx;
@@ -390,31 +377,80 @@ static void ssd1306_draw_text(uint8_t x, uint8_t y, const char *text, uint8_t si
     }
 }
 
-static void calculate_average(accel_data_t *avg) {
+// ================================= Funções Auxiliares ===================================
+
+// Função para adicionar ao buffer
+void add_to_buffer(accel_data_t data) {
+    accel_buffer[buffer_index] = data;
+    
+    // Próximo índice (volta a 0 quando chega em 10)
+    buffer_index = (buffer_index + 1) % 10;
+    
+    // Conta até 10
+    if (buffer_count < 10) {
+        buffer_count++;
+    }
+}
+    
+// Função para Calcular média
+void calculate_average(accel_data_t *avg) {
     avg->x = 0;
     avg->y = 0;
     avg->z = 0;
     
-    int count = (buffer_count < BUFFER_SIZE) ? buffer_count : BUFFER_SIZE;
-    for (int i = 0; i < count; i++) {
+    // Soma todos os valores
+    for (int i = 0; i < buffer_count; i++) {
         avg->x += accel_buffer[i].x;
         avg->y += accel_buffer[i].y;
         avg->z += accel_buffer[i].z;
     }
     
-    if (count > 0) {
-        avg->x /= count;
-        avg->y /= count;
-        avg->z /= count;
+    // Divide pela quantidade
+    if (buffer_count > 0) {
+        avg->x /= buffer_count;
+        avg->y /= buffer_count;
+        avg->z /= buffer_count;
     }
 }
 
-static bool check_acceleration_change(accel_data_t current) {
-    // Calcular variação em relação à última leitura
+// Função para detectar mudança brusca de aceleração
+bool check_acceleration_change(accel_data_t current) {
+    // Calcula diferença em cada eixo
     float delta_x = fabs(current.x - last_accel.x);
     float delta_y = fabs(current.y - last_accel.y);
     float delta_z = fabs(current.z - last_accel.z);
     
-    // Retorna true se qualquer eixo teve variação >= threshold
-    return (delta_x >= ACCEL_THRESHOLD || delta_y >= ACCEL_THRESHOLD || delta_z >= ACCEL_THRESHOLD);
+    // Se QUALQUER mudança >= 0.5 m/s², é significativa
+    return (delta_x >= 0.5 || delta_y >= 0.5 || delta_z >= 0.5);
+}
+
+// ================================= Funções de Configuração ========================================
+
+// Função para configurar o I2C
+static esp_err_t i2c_initial_config() {
+  // Configuração I2C
+  i2c_config_t conf = {
+      .mode = I2C_MODE_MASTER,           // ESP32 é MASTER
+      .sda_io_num = I2C_SDA,             // GPIO 16
+      .scl_io_num = I2C_SCL,             // GPIO 15
+      .sda_pullup_en = GPIO_PULLUP_ENABLE,   // Ativa pull-up
+      .scl_pullup_en = GPIO_PULLUP_ENABLE,   // Ativa pull-up
+      .master.clk_speed = 100000,        // 100 kHz
+  };
+
+    // Aplicar configuração
+    esp_err_t err = i2c_param_config(I2C_NUM_0, &conf);
+    if (err != ESP_OK) {
+        printf("Erro ao configurar I2C!\n");
+        return err;
+    }
+    // Instalar driver
+    return i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0); 
+}
+
+// Função para configurar os LEDs
+void initial_config_led() {
+  gpio_reset_pin(LED);
+  gpio_set_direction(LED, GPIO_MODE_OUTPUT);
+  gpio_set_level(LED, 0);
 }
