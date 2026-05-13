@@ -7,9 +7,9 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Atividade-01/
 - Atividade-02/
 - Atividade-03/
-  - `contador_binario.c`
+  - `main.c`
 - Atividade-04/
-  - `pwm.c`
+  - `main.c`
 - Atividade-05/
   - `main.c`
 - Atividade-06/
