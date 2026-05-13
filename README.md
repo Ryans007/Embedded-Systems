@@ -48,6 +48,11 @@ Este repositório agrupa as atividades práticas da cadeira de **Sistemas Embarc
 - Simulação no Wokwi:  
   https://wokwi.com/projects/447784831288053761
 
+### Atividade 08 – Termômetro com Alarme
+- Descrição: Leitura de temperatura via sensor NTC (equação Steinhart-Hart) com exibição em LCD 16x2 I2C. 4 LEDs indicam a proximidade da temperatura ao limiar de alarme. Ao atingir o limiar, o buzzer é acionado e os LEDs piscam. Botão A incrementa e Botão B decrementa o limiar de alarme em 5 °C via interrupção.
+- Simulação no Wokwi:  
+  https://wokwi.com/projects/447816426252018689
+
 ---
 *Desenvolvido para a disciplina de Sistemas Embarcados*
 

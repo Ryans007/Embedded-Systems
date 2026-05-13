@@ -9,22 +9,23 @@
 #include "driver/adc.h"
 #include "rom/ets_sys.h"
 
+// ========================================= Definição de Variáveis =====================================
 // Definições de Pinos
-#define LED_01 35
-#define LED_02 36
-#define LED_03 37
-#define LED_04 38
-#define BUTTON_A 13
-#define BUTTON_B 14
-#define BUZZER 42
+#define LED_01 14
+#define LED_02 13
+#define LED_03 12
+#define LED_04 11
+#define BUTTON_A 42
+#define BUTTON_B 41
+#define BUZZER 18
 #define NTC_CHANNEL ADC1_CHANNEL_4
 
 // Configurações I2C para LCD
-#define I2C_MASTER_SCL_IO 15
-#define I2C_MASTER_SDA_IO 16
+#define I2C_MASTER_SCL_IO 40
+#define I2C_MASTER_SDA_IO 39
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ 100000
-#define LCD_ADDR 0x27  // Mudado para 0x27 (padrão do Wokwi)
+#define LCD_ADDR 0x27  
 
 // Configurações PWM para Buzzer
 #define LEDC_TIMER LEDC_TIMER_0
@@ -45,128 +46,143 @@
 #define NOMINAL_TEMPERATURE 25.0
 #define B_COEFFICIENT 3950.0
 
-// Variáveis Globais
+// Variaveis Globais
+volatile int16_t last_press_button_a = 0;
+volatile int16_t last_press_button_b = 0;
 volatile int threshold_temp = TEMP_ALARM_DEFAULT;
-volatile bool alert_on = false;
-volatile uint32_t last_press_btn_up = 0;
-volatile uint32_t last_press_btn_down = 0;
+volatile bool alarm_on = false;
+volatile int led_check = 0;
+volatile int16_t led_last_time = 0;
 
-// Protótipos
-void setup_all_pins();
+
+// ======================================= Prototipos ==========================================
+
+void config_gpios();
+void config_pwm();
 void setup_i2c_comm();
 void boot_lcd();
 void clear_display();
 void move_cursor(uint8_t col, uint8_t row);
 void write_text(const char *str);
-void init_sound_driver();
 void init_temp_sensor();
 float get_ntc_reading();
-void set_led_bar(float temp);
+void whats_led_definition(float temp);
 void refresh_display(float temp);
-void toggle_alarm_sound(bool state);
+void buzzer_alarm(bool state);
 
-// ISR (Rotina de Interrupção) do Botão A (Incrementa alarme)
-static void IRAM_ATTR isr_button_up(void* arg) {
-    uint32_t now = xTaskGetTickCountFromISR() * portTICK_PERIOD_MS;
-    
-    if ((now - last_press_btn_up) > DEBOUNCE_MS) {
-        threshold_temp += TEMP_INCREMENT;
-        last_press_btn_up = now;
-    }
+// =========================== Funções de Tratamento de Interrupções ==========================
+
+static void IRAM_ATTR isr_button_up_function(void* arg) {
+  int16_t current_interrupt_time = xTaskGetTickCountFromISR() * portTICK_PERIOD_MS;
+
+  if ((current_interrupt_time - last_press_button_a) > DEBOUNCE_MS) {
+    last_press_button_a = current_interrupt_time;
+    threshold_temp += 5;
+  }
 }
 
-// ISR (Rotina de Interrupção) do Botão B (Decrementa alarme)
-static void IRAM_ATTR isr_button_down(void* arg) {
-    uint32_t now = xTaskGetTickCountFromISR() * portTICK_PERIOD_MS;
-    
-    if ((now - last_press_btn_down) > DEBOUNCE_MS) {
-        threshold_temp -= TEMP_INCREMENT;
-        last_press_btn_down = now;
-    }
-}
+static void IRAM_ATTR isr_button_down_function(void* arg) {
+  int16_t current_interrupt_time = xTaskGetTickCountFromISR() * portTICK_PERIOD_MS;
 
-// Função principal (entry point) da aplicação
-void app_main(void) {
-    printf("Iniciando sistema...\n");
-    
-    // Bloco de inicialização dos periféricos (GPIO, I2C, LCD, PWM, ADC)
-    setup_all_pins();
-    setup_i2c_comm();
+  if ((current_interrupt_time - last_press_button_b) > DEBOUNCE_MS) {
+    last_press_button_b = current_interrupt_time;
+    threshold_temp -= 5;
+  }
+}
+// ========================================== Main =============================================
+
+void app_main() {
+  printf("Iniciando sistema...\n");
+  
+  // Bloco de inicialização dos periféricos (GPIO, I2C, LCD, PWM, ADC)
+  config_gpios();
+  config_pwm();
+  vTaskDelay(pdMS_TO_TICKS(100));
+  setup_i2c_comm();
+  boot_lcd();
+  init_temp_sensor();
+  
+  // Configuração das interrupções dos botões
+  gpio_set_intr_type(BUTTON_A, GPIO_INTR_NEGEDGE);
+  gpio_set_intr_type(BUTTON_B, GPIO_INTR_NEGEDGE);
+  gpio_install_isr_service(0);
+  gpio_isr_handler_add(BUTTON_A, isr_button_up_function, NULL);
+  gpio_isr_handler_add(BUTTON_B, isr_button_down_function, NULL);
+  
+  printf("Sistema pronto!\n");
+  clear_display();
+  
+  // Loop Principal
+  while (true) {
+    float current_temp = get_ntc_reading();
+
+    alarm_on = (current_temp >= threshold_temp) ? 1 : 0;
+
+    buzzer_alarm(alarm_on);
+
+    refresh_display(current_temp);
+
+    int16_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+    if (alarm_on) {
+      if ((current_time - led_last_time) > BLINK_INTERVAL_MS) {
+        led_check = led_check ? 0 : 1;
+        gpio_set_level(LED_01, led_check);
+        gpio_set_level(LED_02, led_check);
+        gpio_set_level(LED_03, led_check);
+        gpio_set_level(LED_04, led_check);
+        led_last_time = current_time;
+      }
+    } else {
+       whats_led_definition(current_temp);
+    }
     vTaskDelay(pdMS_TO_TICKS(100));
-    boot_lcd();
-    init_sound_driver();
-    init_temp_sensor();
-    
-    // Configuração das interrupções dos botões
-    gpio_set_intr_type(BUTTON_A, GPIO_INTR_NEGEDGE);
-    gpio_set_intr_type(BUTTON_B, GPIO_INTR_NEGEDGE);
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(BUTTON_A, isr_button_up, NULL);
-    gpio_isr_handler_add(BUTTON_B, isr_button_down, NULL);
-    
-    printf("Sistema pronto!\n");
-    clear_display();
-    
-    uint32_t last_toggle = 0;
-    bool led_blink_state = false;
-    
-    // Loop principal da aplicação
-    while(1) {
-        // Leitura da temperatura e verificação do alarme
-        float current_temp = get_ntc_reading();
-        
-        alert_on = (current_temp >= threshold_temp);
-        toggle_alarm_sound(alert_on);
-        refresh_display(current_temp);
-        
-        uint32_t tick_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        
-        // Lógica de piscar LEDs se o alarme estiver ativo
-        if (alert_on) {
-            if ((tick_now - last_toggle) >= BLINK_INTERVAL_MS) {
-                led_blink_state = !led_blink_state;
-                gpio_set_level(LED_01, led_blink_state);
-                gpio_set_level(LED_02, led_blink_state);
-                gpio_set_level(LED_03, led_blink_state);
-                gpio_set_level(LED_04, led_blink_state);
-                last_toggle = tick_now;
-            }
-        } else {
-            // Lógica de termômetro (barra de LEDs) se o alarme estiver inativo
-            set_led_bar(current_temp);
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+  }
 }
 
-// Configura os pinos de GPIO (LEDs como saída, Botões como entrada)
-void setup_all_pins() {
-    gpio_reset_pin(LED_01);
-    gpio_set_direction(LED_01, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_01, 0);
+// ==================================== Funções Auxiliares ===========================================
+
+// Atualiza as informações (Temp. Atual e Temp. Alarme) no display LCD
+void refresh_display(float temp) {
+    char line1[32];
     
-    gpio_reset_pin(LED_02);
-    gpio_set_direction(LED_02, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_02, 0);
+    move_cursor(0, 0);
+    sprintf(line1, "Temp: %.1fC    ", temp);
+    write_text(line1);
     
-    gpio_reset_pin(LED_03);
-    gpio_set_direction(LED_03, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_03, 0);
-    
-    gpio_reset_pin(LED_04);
-    gpio_set_direction(LED_04, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_04, 0);
-    
-    // Botões com resistores de pull-up EXTERNOS (10kΩ para 3.3V)
-    gpio_reset_pin(BUTTON_A);
-    gpio_set_direction(BUTTON_A, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(BUTTON_A, GPIO_PULLUP_DISABLE);  // Pull-up externo
-    
-    gpio_reset_pin(BUTTON_B);
-    gpio_set_direction(BUTTON_B, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(BUTTON_B, GPIO_PULLUP_DISABLE);  // Pull-up externo
+    move_cursor(0, 1);
+    sprintf(line1, "Alarm: %dC    ", threshold_temp);
+    write_text(line1);
 }
+
+// Aciona o Buzzer caso a Temperatura esteja maior ou igual a temperatura de alarme
+void buzzer_alarm(bool state) {
+  switch (state) {
+    case 1:
+      ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY);
+      ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
+      break;
+    case 0:
+      ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0);
+      ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
+      break;
+  }
+}
+
+// Função que diz quais leds devem ser acesos de acordo com a temperatura
+void whats_led_definition(float temp) {
+  float variation;
+
+  variation = threshold_temp - temp;
+
+  gpio_set_level(LED_01, (variation <= 20));
+  gpio_set_level(LED_02, (variation <= 15));
+  gpio_set_level(LED_03, (variation <= 10));
+  gpio_set_level(LED_04, (variation <= 2));
+
+}
+
+// ============================ Funções de Configuração LCD (I2C) =======================================
 
 // Inicializa o barramento I2C como mestre
 void setup_i2c_comm() {
@@ -254,28 +270,7 @@ void write_text(const char *str) {
     }
 }
 
-// Configura o periférico LEDC (PWM) para controlar o buzzer
-void init_sound_driver() {
-    ledc_timer_config_t ledc_timer = {
-        .speed_mode = LEDC_MODE,
-        .timer_num = LEDC_TIMER,
-        .duty_resolution = LEDC_TIMER_10_BIT,
-        .freq_hz = LEDC_FREQUENCY,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
-    ledc_timer_config(&ledc_timer);
-    
-    ledc_channel_config_t ledc_channel = {
-        .speed_mode = LEDC_MODE,
-        .channel = LEDC_CHANNEL,
-        .timer_sel = LEDC_TIMER,
-        .intr_type = LEDC_INTR_DISABLE,
-        .gpio_num = BUZZER,
-        .duty = 0,
-        .hpoint = 0
-    };
-    ledc_channel_config(&ledc_channel);
-}
+// ========================= Funções para Sensor de Temperatura (NTC) =============================
 
 // Configura o conversor Analógico-Digital (ADC1)
 void init_temp_sensor() {
@@ -308,38 +303,55 @@ float get_ntc_reading() {
     return temp_calc;
 }
 
-// Atualiza a barra de LEDs (termômetro) com base na proximidade do alarme
-void set_led_bar(float temp) {
-    float margin = threshold_temp - temp;
+// ==================================== Funções de Configuração ================================
+
+// Configura os pinos de GPIO (LEDs como saída, Botões como entrada)
+void config_gpios() {
+    gpio_reset_pin(LED_01);
+    gpio_set_direction(LED_01, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_01, 0);
     
-    gpio_set_level(LED_01, margin <= 20);
-    gpio_set_level(LED_02, margin <= 15);
-    gpio_set_level(LED_03, margin <= 10);
-    gpio_set_level(LED_04, margin <= 2);
+    gpio_reset_pin(LED_02);
+    gpio_set_direction(LED_02, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_02, 0);
+    
+    gpio_reset_pin(LED_03);
+    gpio_set_direction(LED_03, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_03, 0);
+    
+    gpio_reset_pin(LED_04);
+    gpio_set_direction(LED_04, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_04, 0);
+    
+    // Botões com resistores de pull-up EXTERNOS (10kΩ para 3.3V)
+    gpio_reset_pin(BUTTON_A);
+    gpio_set_direction(BUTTON_A, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_A, GPIO_PULLUP_DISABLE);  // Pull-up externo
+    
+    gpio_reset_pin(BUTTON_B);
+    gpio_set_direction(BUTTON_B, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_B, GPIO_PULLUP_DISABLE);  // Pull-up externo
 }
 
-// Atualiza as informações (Temp. Atual e Temp. Alarme) no display LCD
-void refresh_display(float temp) {
-    char line1[16];
+// Configura o periférico LEDC (PWM) para controlar o buzzer
+void config_pwm() {
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_MODE,
+        .timer_num = LEDC_TIMER,
+        .duty_resolution = LEDC_TIMER_10_BIT,
+        .freq_hz = LEDC_FREQUENCY,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&ledc_timer);
     
-    move_cursor(0, 0);
-    sprintf(line1, "NTC: %.1fC    ", temp);
-    write_text(line1);
-    
-    move_cursor(0, 1);
-    sprintf(line1, "Alarm: %dC    ", threshold_temp);
-    write_text(line1);
-}
-
-// Ativa ou desativa o buzzer (PWM)
-void toggle_alarm_sound(bool state) {
-    if (state) {
-        // Ativa o som definindo o duty cycle para 50% (LEDC_DUTY = 512)
-        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY);
-        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
-    } else {
-        // Desativa o som definindo o duty cycle para 0%
-        ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0);
-        ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
-    }
+    ledc_channel_config_t ledc_channel = {
+        .speed_mode = LEDC_MODE,
+        .channel = LEDC_CHANNEL,
+        .timer_sel = LEDC_TIMER,
+        .intr_type = LEDC_INTR_DISABLE,
+        .gpio_num = BUZZER,
+        .duty = 0,
+        .hpoint = 0
+    };
+    ledc_channel_config(&ledc_channel);
 }
